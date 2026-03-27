@@ -237,12 +237,12 @@ export const HomeWelcome: FC = () => {
               <p className="text-[13px] text-destructive">{githubRepoError}</p>
             )}
             <a
-              href="https://dash.freestyle.sh/"
+              href="https://github.com/settings/apps"
               target="_blank"
               rel="noreferrer"
               className="inline-block text-xs text-muted-foreground underline-offset-2 hover:underline"
             >
-              Install GitHub App (Dashboard → Git → Sync)
+              Install GitHub App
             </a>
           </div>
           <DialogFooter>

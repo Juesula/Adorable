@@ -48,7 +48,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 To enable creating projects from existing GitHub repositories:
 
 1. Follow the [GitHub App Setup Guide](../GITHUB_APP_SETUP.md)
-2. Create a GitHub App through the [Freestyle Dashboard](https://dash.freestyle.sh/)
+2. Create/configure your GitHub App following your platform setup
 3. Install the GitHub App on your GitHub repositories
 4. Use the "From GitHub" option when creating new projects
 
