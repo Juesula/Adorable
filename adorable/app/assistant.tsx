@@ -153,9 +153,19 @@ export const Assistant = ({
         return;
       }
 
-      const data = await response.json();
-      const repoId = data.id as string | undefined;
-      const conversationId = data.conversationId as string | undefined;
+      const data = (await response.json()) as {
+        id?: string;
+        conversationId?: string;
+        error?: string;
+      };
+
+      if (data.error) {
+        console.error(data.error);
+        return;
+      }
+
+      const repoId = data.id;
+      const conversationId = data.conversationId;
 
       if (!repoId || !conversationId) {
         return;
@@ -269,9 +279,18 @@ export const Assistant = ({
         throw new Error("Failed to create a repository for this chat.");
       }
 
-      const data = await response.json();
-      const repoId = data.id as string | undefined;
-      const conversationId = data.conversationId as string | undefined;
+      const data = (await response.json()) as {
+        id?: string;
+        conversationId?: string;
+        error?: string;
+      };
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const repoId = data.id;
+      const conversationId = data.conversationId;
 
       if (!repoId || !conversationId) {
         throw new Error("Repository creation did not return ids.");

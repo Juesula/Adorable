@@ -1,5 +1,8 @@
-import { type UIMessage } from "ai";
-import { cookies } from "next/headers";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  type UIMessage,
+} from "ai";
 import { freestyle } from "freestyle-sandboxes";
 import { createTools as createVmTools } from "@/lib/create-tools";
 import { streamLlmResponse } from "@/lib/llm-provider";
@@ -34,6 +37,27 @@ export async function POST(req: Request) {
     );
   }
 
+  const hasCloudflareCredentials =
+    !!process.env.CLOUDFLARE_ACCOUNT_ID && !!process.env.CLOUDFLARE_API_TOKEN;
+
+  if (!hasCloudflareCredentials) {
+    const textId = crypto.randomUUID();
+    const stream = createUIMessageStream({
+      execute: ({ writer }) => {
+        writer.write({ type: "text-start", id: textId });
+        writer.write({
+          type: "text-delta",
+          id: textId,
+          delta:
+            "No necesitas configurar ninguna API key en la UI. El chat funciona en modo local porque faltan credenciales backend de Cloudflare Workers AI.",
+        });
+        writer.write({ type: "text-end", id: textId });
+      },
+    });
+
+    return createUIMessageStreamResponse({ stream });
+  }
+
   const { identity } = await getOrCreateIdentitySession();
   const { repositories } = await identity.permissions.git.list({ limit: 200 });
   const hasAccess = repositories.some((repo) => repo.id === repoId);
@@ -62,31 +86,10 @@ export async function POST(req: Request) {
     metadataRepoId: repoId,
   });
 
-  // Read user-provided API key from cookie (if no global env key)
-  const jar = await cookies();
-  const userApiKey = jar.get("user-api-key")?.value;
-  const userProvider = jar.get("user-api-provider")?.value;
-
-  const hasGlobalKey = !!(
-    process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY
-  );
-
-  // If no global key and no user key, reject
-  if (!hasGlobalKey && !userApiKey) {
-    return Response.json(
-      { error: "No API key configured. Please add your API key in settings." },
-      { status: 401 },
-    );
-  }
-
   const llm = await streamLlmResponse({
     system: SYSTEM_PROMPT,
     messages,
     tools,
-    // Only pass user key if there's no global key
-    ...(hasGlobalKey
-      ? {}
-      : { apiKey: userApiKey, providerOverride: userProvider }),
   });
 
   return llm.result.toUIMessageStreamResponse({
