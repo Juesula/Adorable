@@ -7,13 +7,12 @@ This is an [assistant-ui](https://github.com/Yonom/assistant-ui) project with pr
 Create a `.env.local` file in the root directory and add your credentials:
 
 ```
-# Default provider: OpenAI
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your-openai-api-key
+# Required: Cloudflare Workers AI credentials (backend only)
+CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 
-# Optional: Claude provider support (swap provider without touching UI code)
-# LLM_PROVIDER=claude
-# ANTHROPIC_API_KEY=your-anthropic-api-key
+# Optional: override the default model
+# CLOUDFLARE_WORKERS_AI_MODEL=@cf/meta/llama-4-scout-17b-16e-instruct
 ```
 
 > **Note**: You can copy `.env.example` to `.env.local` and fill in your values.
@@ -63,6 +62,6 @@ You can start customizing the UI by modifying components in the `components/assi
 
 - `app/assistant.tsx` - Renders the chat interface and sets up the assistant runtime
 - `app/api/chat/route.ts` - Chat API endpoint
-- `lib/llm-provider.ts` - Provider wrapper (OpenAI + Claude)
+- `lib/llm-provider.ts` - Cloudflare Workers AI provider wrapper
 - `components/assistant-ui/thread.tsx` - Chat thread component
 - `components/app-sidebar.tsx` - Sidebar with thread list

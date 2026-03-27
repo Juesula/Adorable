@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { RepoWorkspaceShell } from "./[repoId]/repo-workspace-shell";
-import { ApiKeySettingsDialog } from "@/components/api-key-gate";
 
 type ActiveConversationDetail = {
   repoId: string;
@@ -109,10 +108,6 @@ export function WorkspaceFrame({ children }: { children: React.ReactNode }) {
       selectedConversationIdOverride={effectiveConversationId}
     >
       {children}
-      {/* Settings button */}
-      <div className="fixed bottom-3 left-3 z-50 md:right-3 md:left-auto">
-        <ApiKeySettingsDialog />
-      </div>
     </RepoWorkspaceShell>
   );
 }
