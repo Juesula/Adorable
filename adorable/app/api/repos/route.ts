@@ -226,12 +226,9 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Failed to create repository", error);
 
-    return NextResponse.json(
-      {
-        error:
-          "Failed to create repository. Verify Freestyle backend credentials and try again.",
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({
+      error:
+        "Failed to create repository. Verify Freestyle backend credentials and try again.",
+    });
   }
 }
