@@ -226,9 +226,13 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Failed to create repository", error);
 
+    const detail =
+      error instanceof Error && error.message
+        ? error.message
+        : "Unknown backend error.";
+
     return NextResponse.json({
-      error:
-        "Failed to create repository. Verify Freestyle backend credentials and try again.",
+      error: `Failed to create repository: ${detail}`,
     });
   }
 }
