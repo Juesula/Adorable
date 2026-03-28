@@ -1,8 +1,4 @@
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  type UIMessage,
-} from "ai";
+import { type UIMessage } from "ai";
 import { freestyle } from "freestyle-sandboxes";
 import { createTools as createVmTools } from "@/lib/create-tools";
 import { streamLlmResponse } from "@/lib/llm-provider";
@@ -41,21 +37,13 @@ export async function POST(req: Request) {
     !!process.env.CLOUDFLARE_ACCOUNT_ID && !!process.env.CLOUDFLARE_API_TOKEN;
 
   if (!hasCloudflareCredentials) {
-    const textId = crypto.randomUUID();
-    const stream = createUIMessageStream({
-      execute: ({ writer }) => {
-        writer.write({ type: "text-start", id: textId });
-        writer.write({
-          type: "text-delta",
-          id: textId,
-          delta:
-            "No necesitas configurar ninguna API key en la UI. El chat funciona en modo local porque faltan credenciales backend de Cloudflare Workers AI.",
-        });
-        writer.write({ type: "text-end", id: textId });
+    return Response.json(
+      {
+        error:
+          "Missing Cloudflare Workers AI credentials. Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN on the backend.",
       },
-    });
-
-    return createUIMessageStreamResponse({ stream });
+      { status: 500 },
+    );
   }
 
   const { identity } = await getOrCreateIdentitySession();
