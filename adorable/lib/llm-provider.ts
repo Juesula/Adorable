@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
-  generateText,
+  streamText,
   stepCountIs,
   type UIMessage,
   type ToolSet,
@@ -11,13 +11,6 @@ type StreamLlmResponseParams = {
   system: string;
   messages: UIMessage[];
   tools: ToolSet;
-  onTextDelta?: (delta: string) => void | Promise<void>;
-};
-
-type StreamLlmResponseResult = {
-  text: string;
-  model: string;
-  profile: ModelProfile;
 };
 
 const DEFAULT_MODEL =
@@ -154,7 +147,10 @@ const detectModelProfile = (messages: UIMessage[]): ModelProfile => {
   return "general";
 };
 
-const shouldRequireToolUse = (messages: UIMessage[], tools: ToolSet): boolean => {
+export const shouldRequireToolUse = (
+  messages: UIMessage[],
+  tools: ToolSet,
+): boolean => {
   if (!tools || Object.keys(tools).length === 0) return false;
 
   const latestUserMessage = [...messages]
@@ -187,46 +183,23 @@ const createCloudflareProvider = () => {
   });
 };
 
-export const streamLlmResponse = async ({
+export const createLlmStream = async ({
   system,
   messages,
   tools,
-  onTextDelta,
-}: StreamLlmResponseParams): Promise<StreamLlmResponseResult> => {
+}: StreamLlmResponseParams) => {
   const provider = createCloudflareProvider();
   const profile = detectModelProfile(messages);
   const selectedModel = getModelForProfile(profile);
   const modelMessages = await convertToModelMessages(messages);
   const requireToolUse = shouldRequireToolUse(messages, tools);
 
-  let emittedText = "";
-
-  // NOTE: intentionally using generateText (not streamText) for compatibility
-  // with current provider/tool-calling behavior in production builds.
-  const result = await generateText({
+  return streamText({
     system,
     model: provider.chat(selectedModel),
     messages: modelMessages,
     tools,
     toolChoice: "auto",
     stopWhen: stepCountIs(requireToolUse ? 20 : 6),
-    onStepFinish: async ({ text }) => {
-      if (!onTextDelta || !text) return;
-
-      const delta = text.startsWith(emittedText)
-        ? text.slice(emittedText.length)
-        : text;
-
-      if (delta) {
-        emittedText += delta;
-        await onTextDelta(delta);
-      }
-    },
   });
-
-  if (onTextDelta && result.text && !emittedText) {
-    await onTextDelta(result.text);
-  }
-
-  return { text: result.text, model: selectedModel, profile };
 };

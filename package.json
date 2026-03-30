@@ -9,5 +9,10 @@
     "build": "npm run build --workspace ./adorable",
     "start": "npm run start --workspace ./adorable",
     "lint": "npm run lint --workspace ./adorable"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^3.0.48",
+    "ai": "^6.0.141",
+    "freestyle-sandboxes": "^0.1.35"
   }
 }
