@@ -167,6 +167,61 @@ const getModelForProfile = (profile: ModelProfile): string => {
   return GENERAL_MODEL;
 };
 
+/**
+ * Cloudflare Workers AI sometimes emits SSE chunks where `delta.content` is
+ * a number (e.g. `1`) instead of a string. The AI SDK's OpenAI-compat layer
+ * runs strict type validation and throws "Type validation failed" on those
+ * chunks. We fix this with a custom `fetch` wrapper that rewrites every SSE
+ * line on the fly, coercing `content` to a string before the SDK sees it.
+ */
+const sanitizeCloudflareStream = (
+  response: Response,
+): Response => {
+  if (!response.body) return response;
+
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+
+  const transformed = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      const text = decoder.decode(chunk, { stream: true });
+      const fixed = text
+        .split("\n")
+        .map((line) => {
+          if (!line.startsWith("data:")) return line;
+          const jsonPart = line.slice(5).trim();
+          if (!jsonPart || jsonPart === "[DONE]") return line;
+          try {
+            const parsed = JSON.parse(jsonPart);
+            let dirty = false;
+            if (Array.isArray(parsed?.choices)) {
+              for (const choice of parsed.choices) {
+                const delta = choice?.delta;
+                if (delta && typeof delta.content !== "string" && delta.content !== undefined) {
+                  delta.content = delta.content == null ? null : String(delta.content);
+                  dirty = true;
+                }
+              }
+            }
+            return dirty ? `data: ${JSON.stringify(parsed)}` : line;
+          } catch {
+            return line;
+          }
+        })
+        .join("\n");
+      controller.enqueue(encoder.encode(fixed));
+    },
+  });
+
+  response.body.pipeTo(transformed.writable).catch(() => {});
+
+  return new Response(transformed.readable, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
 const createCloudflareProvider = () => {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiKey = process.env.CLOUDFLARE_API_TOKEN;
@@ -180,6 +235,14 @@ const createCloudflareProvider = () => {
   return createOpenAI({
     apiKey,
     baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+    fetch: async (url, init) => {
+      const response = await fetch(url, init);
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("text/event-stream")) {
+        return sanitizeCloudflareStream(response);
+      }
+      return response;
+    },
   });
 };
 
