@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
-  streamText,
+  generateText,
   stepCountIs,
   type UIMessage,
   type ToolSet,
@@ -199,22 +199,32 @@ export const streamLlmResponse = async ({
   const modelMessages = await convertToModelMessages(messages);
   const requireToolUse = shouldRequireToolUse(messages, tools);
 
+  let emittedText = "";
+
   const result = streamText({
     system,
     model: provider.chat(selectedModel),
     messages: modelMessages,
     tools,
-    toolChoice: requireToolUse ? "required" : "auto",
+    toolChoice: "auto",
     stopWhen: stepCountIs(requireToolUse ? 20 : 6),
+    onStepFinish: async ({ text }) => {
+      if (!onTextDelta || !text) return;
+
+      const delta = text.startsWith(emittedText)
+        ? text.slice(emittedText.length)
+        : text;
+
+      if (delta) {
+        emittedText += delta;
+        await onTextDelta(delta);
+      }
+    },
   });
 
-  if (onTextDelta) {
-    for await (const delta of result.textStream) {
-      if (delta) await onTextDelta(delta);
-    }
+  if (onTextDelta && result.text && !emittedText) {
+    await onTextDelta(result.text);
   }
 
-  const finalText = await result.text;
-
-  return { text: finalText, model: selectedModel, profile };
+  return { text: result.text, model: selectedModel, profile };
 };
