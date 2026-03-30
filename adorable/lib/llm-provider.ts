@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
-  generateText,
+  streamText,
   stepCountIs,
   type UIMessage,
   type ToolSet,
@@ -11,6 +11,7 @@ type StreamLlmResponseParams = {
   system: string;
   messages: UIMessage[];
   tools: ToolSet;
+  onTextDelta?: (delta: string) => void | Promise<void>;
 };
 
 type StreamLlmResponseResult = {
@@ -96,8 +97,6 @@ const WEBSITE_BUILD_KEYWORDS = [
   "tailwind",
   "animacion",
   "animación",
-  "edita",
-  "elimina",
 ];
 
 const normalizeText = (value: string): string =>
@@ -192,6 +191,7 @@ export const streamLlmResponse = async ({
   system,
   messages,
   tools,
+  onTextDelta,
 }: StreamLlmResponseParams): Promise<StreamLlmResponseResult> => {
   const provider = createCloudflareProvider();
   const profile = detectModelProfile(messages);
@@ -199,7 +199,7 @@ export const streamLlmResponse = async ({
   const modelMessages = await convertToModelMessages(messages);
   const requireToolUse = shouldRequireToolUse(messages, tools);
 
-  const result = await generateText({
+  const result = streamText({
     system,
     model: provider.chat(selectedModel),
     messages: modelMessages,
@@ -208,5 +208,13 @@ export const streamLlmResponse = async ({
     stopWhen: stepCountIs(requireToolUse ? 20 : 6),
   });
 
-  return { text: result.text, model: selectedModel, profile };
+  if (onTextDelta) {
+    for await (const delta of result.textStream) {
+      if (delta) await onTextDelta(delta);
+    }
+  }
+
+  const finalText = await result.text;
+
+  return { text: finalText, model: selectedModel, profile };
 };
