@@ -1,36 +1,17 @@
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  type UIMessage,
-} from "ai";
+import { type UIMessage } from "ai";
 import { freestyle } from "freestyle-sandboxes";
 import { createTools as createVmTools } from "@/lib/create-tools";
-import { streamLlmResponse } from "@/lib/llm-provider";
+import { createLlmStream } from "@/lib/llm-provider";
 import { adorableVmSpec } from "@/lib/adorable-vm";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import { readRepoMetadata, saveConversationMessages } from "@/lib/repo-storage";
 import { saveLocalMessages } from "@/lib/local-fallback-store";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
 
-const WEBSITE_INTENT_KEYWORDS = [
-  "web",
-  "website",
-  "pagina",
-  "página",
-  "landing",
-  "app",
-  "sitio",
-  "frontend",
-  "ui",
-  "tailwind",
-  "crear",
-  "crea",
-  "build",
-  "haz",
-];
-
 const latestUserText = (messages: UIMessage[]): string => {
-  const latest = [...messages].reverse().find((message) => message.role === "user");
+  const latest = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
   if (!latest || !Array.isArray(latest.parts)) return "";
 
   return latest.parts
@@ -49,6 +30,22 @@ const latestUserText = (messages: UIMessage[]): string => {
 };
 
 const isWebsiteRequest = (messages: UIMessage[]): boolean => {
+  const WEBSITE_INTENT_KEYWORDS = [
+    "web",
+    "website",
+    "pagina",
+    "página",
+    "landing",
+    "app",
+    "sitio",
+    "frontend",
+    "ui",
+    "tailwind",
+    "crear",
+    "crea",
+    "build",
+    "haz",
+  ];
   const text = latestUserText(messages);
   return WEBSITE_INTENT_KEYWORDS.some((keyword) => text.includes(keyword));
 };
@@ -78,73 +75,6 @@ const buildFallbackPage = (userRequest: string): string => {
   );
 }
 `;
-};
-
-const createTextResponse = (text: string, originalMessages: UIMessage[]) => {
-  const textId = crypto.randomUUID();
-  const stream = createUIMessageStream({
-    originalMessages,
-    execute: ({ writer }) => {
-      writer.write({ type: "text-start", id: textId });
-      writer.write({ type: "text-delta", id: textId, delta: text });
-      writer.write({ type: "text-end", id: textId });
-    },
-  });
-
-  return createUIMessageStreamResponse({ stream });
-};
-
-const createStreamingLlmResponse = ({
-  originalMessages,
-  run,
-}: {
-  originalMessages: UIMessage[];
-  run: (callbacks: {
-    onTextDelta: (delta: string) => void;
-    onFileEdit: (file: string) => void;
-  }) => Promise<string>;
-}) => {
-  const textId = crypto.randomUUID();
-
-  const stream = createUIMessageStream({
-    originalMessages,
-    execute: async ({ writer }) => {
-      writer.write({ type: "text-start", id: textId });
-
-      const onTextDelta = (delta: string) => {
-        writer.write({ type: "text-delta", id: textId, delta });
-      };
-
-      const onFileEdit = (file: string) => {
-        writer.write({
-          type: "text-delta",
-          id: textId,
-          delta: `\n\nediting (${file})`,
-        });
-      };
-
-      try {
-        await run({ onTextDelta, onFileEdit });
-      } finally {
-        writer.write({ type: "text-end", id: textId });
-      }
-    },
-  });
-
-  return createUIMessageStreamResponse({ stream });
-};
-
-const appendAssistantMessage = (
-  messages: UIMessage[],
-  text: string,
-): UIMessage[] => {
-  const assistantMessage: UIMessage = {
-    id: crypto.randomUUID(),
-    role: "assistant",
-    parts: [{ type: "text", text }],
-  };
-
-  return [...messages, assistantMessage];
 };
 
 export async function POST(req: Request) {
@@ -177,38 +107,58 @@ export async function POST(req: Request) {
     !!process.env.CLOUDFLARE_ACCOUNT_ID && !!process.env.CLOUDFLARE_API_TOKEN;
 
   if (!hasCloudflareCredentials) {
-    return createTextResponse(
-      "No hay credenciales de Cloudflare Workers AI configuradas en backend. Configura CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_API_TOKEN para respuestas reales.",
-      messages,
-    );
+    // Return a plain text stream response indicating missing config
+    const { createUIMessageStream, createUIMessageStreamResponse } =
+      await import("ai");
+    const textId = crypto.randomUUID();
+    const stream = createUIMessageStream({
+      originalMessages: messages,
+      execute: ({ writer }) => {
+        const msg =
+          "No hay credenciales de Cloudflare Workers AI configuradas. Configura CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_API_TOKEN.";
+        writer.write({ type: "text-start", id: textId });
+        writer.write({ type: "text-delta", id: textId, delta: msg });
+        writer.write({ type: "text-end", id: textId });
+      },
+    });
+    return createUIMessageStreamResponse({ stream });
   }
 
   const isLocalConversation = repoId.startsWith("local-");
 
   if (isLocalConversation) {
     try {
-      return createStreamingLlmResponse({
-        originalMessages: messages,
-        run: async ({ onTextDelta }) => {
-          const llm = await streamLlmResponse({
-            system: SYSTEM_PROMPT,
-            messages,
-            tools: {},
-            onTextDelta,
-          });
+      const result = await createLlmStream({
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: {},
+      });
 
-          const finalMessages = appendAssistantMessage(messages, llm.text);
-          await saveLocalMessages(repoId, conversationId, finalMessages);
-          return llm.text;
+      return result.toUIMessageStreamResponse({
+        originalMessages: messages,
+        onFinish: async ({ messages: finishedMessages }) => {
+          await saveLocalMessages(repoId, conversationId, finishedMessages);
         },
       });
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : "Unknown local LLM error.";
-      return createTextResponse(
-        `No pude generar respuesta en modo local: ${detail}`,
-        messages,
-      );
+      const { createUIMessageStream, createUIMessageStreamResponse } =
+        await import("ai");
+      const textId = crypto.randomUUID();
+      const stream = createUIMessageStream({
+        originalMessages: messages,
+        execute: ({ writer }) => {
+          writer.write({ type: "text-start", id: textId });
+          writer.write({
+            type: "text-delta",
+            id: textId,
+            delta: `No pude generar respuesta en modo local: ${detail}`,
+          });
+          writer.write({ type: "text-end", id: textId });
+        },
+      });
+      return createUIMessageStreamResponse({ stream });
     }
   }
 
@@ -228,6 +178,7 @@ export async function POST(req: Request) {
     );
   }
 
+  // Save messages before starting the stream
   await saveConversationMessages(repoId, metadata, conversationId, messages);
 
   const vm = freestyle.vms.ref({
@@ -236,79 +187,63 @@ export async function POST(req: Request) {
   });
 
   try {
-    return createStreamingLlmResponse({
+    const editedFiles = new Set<string>();
+
+    const tools = createVmTools(vm, {
+      sourceRepoId: metadata.sourceRepoId,
+      metadataRepoId: repoId,
+      onFileEdit: (file) => {
+        editedFiles.add(file);
+      },
+    });
+
+    const result = await createLlmStream({
+      system: SYSTEM_PROMPT,
+      messages,
+      tools,
+    });
+
+    return result.toUIMessageStreamResponse({
       originalMessages: messages,
-      run: async ({ onTextDelta, onFileEdit }) => {
-        const editedFiles = new Set<string>();
-        const websiteRequest = isWebsiteRequest(messages);
-        const maxLlmRequests = websiteRequest ? 3 : 1;
-        const toolsWithEditEvents = createVmTools(vm, {
-          sourceRepoId: metadata.sourceRepoId,
-          metadataRepoId: repoId,
-          onFileEdit: (file) => {
-            editedFiles.add(file);
-            onFileEdit(file);
-          },
-        });
-
-        let finalText = "";
-
-        for (let attempt = 1; attempt <= maxLlmRequests; attempt += 1) {
-          const attemptSystem =
-            attempt === 1
-              ? SYSTEM_PROMPT
-              : `${SYSTEM_PROMPT}\n\nAttempt ${attempt}/${maxLlmRequests}: You must apply concrete file edits using tools before you answer.`;
-
-          if (attempt > 1) {
-            onTextDelta(
-              `\n\nNo hubo cambios de archivos en el intento anterior. Reintentando (${attempt}/${maxLlmRequests})...\n`,
-            );
-          }
-
-          const llm = await streamLlmResponse({
-            system: attemptSystem,
-            messages,
-            tools: toolsWithEditEvents,
-            onTextDelta,
-          });
-
-          finalText = finalText ? `${finalText}\n\n${llm.text}` : llm.text;
-
-          if (editedFiles.size > 0) {
-            break;
-          }
-        }
-
+      onFinish: async ({ messages: finishedMessages }) => {
+        // Apply fallback if no files were edited for a website request
         if (editedFiles.size === 0 && isWebsiteRequest(messages)) {
           const requestText = latestUserText(messages);
-          await vm.fs.writeTextFile("app/page.tsx", buildFallbackPage(requestText));
-          onFileEdit("app/page.tsx");
-          const note =
-            "\n\nHe aplicado un fallback automático en app/page.tsx para que la web aparezca en preview.";
-          onTextDelta(note);
-          finalText += note;
+          await vm.fs.writeTextFile(
+            "app/page.tsx",
+            buildFallbackPage(requestText),
+          );
         }
 
-        const finalMessages = appendAssistantMessage(messages, finalText);
         const latestMetadata = await readRepoMetadata(repoId);
         if (latestMetadata) {
           await saveConversationMessages(
             repoId,
             latestMetadata,
             conversationId,
-            finalMessages,
+            finishedMessages,
           );
         }
-
-        return finalText;
       },
     });
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Unknown backend LLM error.";
-    return createTextResponse(
-      `No pude generar respuesta del asistente: ${detail}`,
-      messages,
-    );
+    const { createUIMessageStream, createUIMessageStreamResponse } =
+      await import("ai");
+    const textId = crypto.randomUUID();
+    const stream = createUIMessageStream({
+      originalMessages: messages,
+      execute: ({ writer }) => {
+        writer.write({ type: "text-start", id: textId });
+        writer.write({
+          type: "text-delta",
+          id: textId,
+          delta: `No pude generar respuesta del asistente: ${detail}`,
+        });
+        writer.write({ type: "text-end", id: textId });
+      },
+    });
+    return createUIMessageStreamResponse({ stream });
   }
 }
