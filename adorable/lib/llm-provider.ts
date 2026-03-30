@@ -1,6 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   generateText,
+  stepCountIs,
   type UIMessage,
   type ToolSet,
   convertToModelMessages,
@@ -75,6 +76,48 @@ const FUNCTION_KEYWORDS = [
   "webhook",
 ];
 
+const WEBSITE_BUILD_KEYWORDS = [
+  "build",
+  "crear",
+  "crea",
+  "haz",
+  "make",
+  "app",
+  "web",
+  "website",
+  "pagina",
+  "página",
+  "landing",
+  "dashboard",
+  "component",
+  "componente",
+  "ui",
+  "ux",
+  "tailwind",
+  "animacion",
+  "animación",
+  "edita",
+  "elimina",
+];
+
+const normalizeText = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+const hasKeyword = (text: string, keyword: string): boolean => {
+  const normalizedText = normalizeText(text);
+  const normalizedKeyword = normalizeText(keyword);
+
+  if (normalizedKeyword.includes(" ")) {
+    return normalizedText.includes(normalizedKeyword);
+  }
+
+  const words = new Set(normalizedText.split(/[^a-z0-9_-]+/).filter(Boolean));
+  return words.has(normalizedKeyword);
+};
+
 const getMessageText = (message: UIMessage): string => {
   if (!Array.isArray(message.parts)) return "";
 
@@ -101,15 +144,26 @@ const detectModelProfile = (messages: UIMessage[]): ModelProfile => {
 
   const text = latestUserMessage ? getMessageText(latestUserMessage) : "";
 
-  if (VISUAL_KEYWORDS.some((keyword) => text.includes(keyword))) {
+  if (VISUAL_KEYWORDS.some((keyword) => hasKeyword(text, keyword))) {
     return "visual";
   }
 
-  if (FUNCTION_KEYWORDS.some((keyword) => text.includes(keyword))) {
+  if (FUNCTION_KEYWORDS.some((keyword) => hasKeyword(text, keyword))) {
     return "functions";
   }
 
   return "general";
+};
+
+const shouldRequireToolUse = (messages: UIMessage[], tools: ToolSet): boolean => {
+  if (!tools || Object.keys(tools).length === 0) return false;
+
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const text = latestUserMessage ? getMessageText(latestUserMessage) : "";
+
+  return WEBSITE_BUILD_KEYWORDS.some((keyword) => hasKeyword(text, keyword));
 };
 
 const getModelForProfile = (profile: ModelProfile): string => {
@@ -143,12 +197,15 @@ export const streamLlmResponse = async ({
   const profile = detectModelProfile(messages);
   const selectedModel = getModelForProfile(profile);
   const modelMessages = await convertToModelMessages(messages);
+  const requireToolUse = shouldRequireToolUse(messages, tools);
 
   const result = await generateText({
     system,
     model: provider.chat(selectedModel),
     messages: modelMessages,
     tools,
+    toolChoice: requireToolUse ? "required" : "auto",
+    stopWhen: stepCountIs(requireToolUse ? 20 : 6),
   });
 
   return { text: result.text, model: selectedModel, profile };
