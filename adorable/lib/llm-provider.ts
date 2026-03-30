@@ -201,7 +201,7 @@ export const streamLlmResponse = async ({
 
   let emittedText = "";
 
-  const result = await generateText({
+  const result = streamText({
     system,
     model: provider.chat(selectedModel),
     messages: modelMessages,
