@@ -96,6 +96,8 @@ const WEBSITE_BUILD_KEYWORDS = [
   "tailwind",
   "animacion",
   "animación",
+  "edita",
+  "elimina",
 ];
 
 const normalizeText = (value: string): string =>
