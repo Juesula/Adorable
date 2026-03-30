@@ -46,6 +46,22 @@ export async function POST(req: Request) {
     );
   }
 
+  const isLocalConversation = repoId.startsWith("local-");
+
+  if (isLocalConversation) {
+    const llm = await streamLlmResponse({
+      system: SYSTEM_PROMPT,
+      messages,
+      tools: {},
+    });
+
+    return llm.result.toUIMessageStreamResponse({
+      sendReasoning: true,
+      originalMessages: messages,
+      generateMessageId: () => crypto.randomUUID(),
+    });
+  }
+
   const { identity } = await getOrCreateIdentitySession();
   const { repositories } = await identity.permissions.git.list({ limit: 200 });
   const hasAccess = repositories.some((repo) => repo.id === repoId);

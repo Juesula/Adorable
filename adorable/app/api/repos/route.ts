@@ -226,13 +226,30 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Failed to create repository", error);
 
-    const detail =
-      error instanceof Error && error.message
-        ? error.message
-        : "Unknown backend error.";
+    const now = new Date().toISOString();
+    const conversationId = randomUUID();
+    const localRepoId = `local-${randomUUID()}`;
 
     return NextResponse.json({
-      error: `Failed to create repository: ${detail}`,
+      id: localRepoId,
+      conversationId,
+      metadata: {
+        version: 2,
+        sourceRepoId: localRepoId,
+        vm: null,
+        conversations: [
+          {
+            id: conversationId,
+            title: "Local conversation",
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        deployments: [],
+        productionDomain: null,
+        productionDeploymentId: null,
+      },
+      isLocalFallback: true,
     });
   }
 }
