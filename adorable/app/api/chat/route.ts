@@ -1,5 +1,8 @@
-import { type UIMessage } from "ai";
-import { cookies } from "next/headers";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  type UIMessage,
+} from "ai";
 import { freestyle } from "freestyle-sandboxes";
 import { createTools as createVmTools } from "@/lib/create-tools";
 import { streamLlmResponse } from "@/lib/llm-provider";
@@ -7,6 +10,32 @@ import { adorableVmSpec } from "@/lib/adorable-vm";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import { readRepoMetadata, saveConversationMessages } from "@/lib/repo-storage";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
+
+const createTextResponse = (text: string) => {
+  const textId = crypto.randomUUID();
+  const stream = createUIMessageStream({
+    execute: ({ writer }) => {
+      writer.write({ type: "text-start", id: textId });
+      writer.write({ type: "text-delta", id: textId, delta: text });
+      writer.write({ type: "text-end", id: textId });
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
+};
+
+const appendAssistantMessage = (
+  messages: UIMessage[],
+  text: string,
+): UIMessage[] => {
+  const assistantMessage: UIMessage = {
+    id: crypto.randomUUID(),
+    role: "assistant",
+    parts: [{ type: "text", text }],
+  };
+
+  return [...messages, assistantMessage];
+};
 
 export async function POST(req: Request) {
   const payload = (await req.json()) as {
@@ -32,6 +61,31 @@ export async function POST(req: Request) {
       { error: "messages must be an array." },
       { status: 400 },
     );
+  }
+
+  const hasCloudflareCredentials =
+    !!process.env.CLOUDFLARE_ACCOUNT_ID && !!process.env.CLOUDFLARE_API_TOKEN;
+
+  if (!hasCloudflareCredentials) {
+    return Response.json(
+      {
+        error:
+          "Missing Cloudflare Workers AI credentials. Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN on the backend.",
+      },
+      { status: 500 },
+    );
+  }
+
+  const isLocalConversation = repoId.startsWith("local-");
+
+  if (isLocalConversation) {
+    const llm = await streamLlmResponse({
+      system: SYSTEM_PROMPT,
+      messages,
+      tools: {},
+    });
+
+    return createTextResponse(llm.text);
   }
 
   const { identity } = await getOrCreateIdentitySession();
@@ -62,46 +116,22 @@ export async function POST(req: Request) {
     metadataRepoId: repoId,
   });
 
-  // Read user-provided API key from cookie (if no global env key)
-  const jar = await cookies();
-  const userApiKey = jar.get("user-api-key")?.value;
-  const userProvider = jar.get("user-api-provider")?.value;
-
-  const hasGlobalKey = !!(
-    process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY
-  );
-
-  // If no global key and no user key, reject
-  if (!hasGlobalKey && !userApiKey) {
-    return Response.json(
-      { error: "No API key configured. Please add your API key in settings." },
-      { status: 401 },
-    );
-  }
-
   const llm = await streamLlmResponse({
     system: SYSTEM_PROMPT,
     messages,
     tools,
-    // Only pass user key if there's no global key
-    ...(hasGlobalKey
-      ? {}
-      : { apiKey: userApiKey, providerOverride: userProvider }),
   });
 
-  return llm.result.toUIMessageStreamResponse({
-    sendReasoning: true,
-    originalMessages: messages,
-    generateMessageId: () => crypto.randomUUID(),
-    onFinish: async ({ messages: finalMessages }) => {
-      const latestMetadata = await readRepoMetadata(repoId);
-      if (!latestMetadata) return;
-      await saveConversationMessages(
-        repoId,
-        latestMetadata,
-        conversationId,
-        finalMessages,
-      );
-    },
-  });
+  const finalMessages = appendAssistantMessage(messages, llm.text);
+  const latestMetadata = await readRepoMetadata(repoId);
+  if (latestMetadata) {
+    await saveConversationMessages(
+      repoId,
+      latestMetadata,
+      conversationId,
+      finalMessages,
+    );
+  }
+
+  return createTextResponse(llm.text);
 }
