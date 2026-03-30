@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { WorkspaceFrame } from "./workspace-frame";
-import { ApiKeyGate } from "@/components/api-key-gate";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,9 +28,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} h-full overflow-hidden overscroll-none antialiased`}
       >
-        <ApiKeyGate>
-          <WorkspaceFrame>{children}</WorkspaceFrame>
-        </ApiKeyGate>
+        <WorkspaceFrame>{children}</WorkspaceFrame>
       </body>
     </html>
   );

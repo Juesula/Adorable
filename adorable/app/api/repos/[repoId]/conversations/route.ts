@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import { createConversationInRepo, readRepoMetadata } from "@/lib/repo-storage";
+import {
+  createLocalConversation,
+  listLocalConversations,
+} from "@/lib/local-fallback-store";
 
 const assertRepoAccess = async (repoId: string) => {
   const { identity } = await getOrCreateIdentitySession();
@@ -15,16 +19,18 @@ export async function GET(
 ) {
   const { repoId } = await params;
 
+  if (repoId.startsWith("local-")) {
+    const conversations = await listLocalConversations(repoId);
+    return NextResponse.json({ conversations, isLocalFallback: true });
+  }
+
   if (!(await assertRepoAccess(repoId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const metadata = await readRepoMetadata(repoId);
   if (!metadata) {
-    return NextResponse.json(
-      { error: "Repository metadata not found" },
-      { status: 404 },
-    );
+    return NextResponse.json({ conversations: [], isLocalFallback: true });
   }
 
   return NextResponse.json({ conversations: metadata.conversations });
@@ -45,16 +51,25 @@ export async function POST(
     requestedTitle = undefined;
   }
 
+  if (repoId.startsWith("local-")) {
+    const local = await createLocalConversation(repoId, requestedTitle);
+    return NextResponse.json({
+      ...local,
+      isLocalFallback: true,
+    });
+  }
+
   if (!(await assertRepoAccess(repoId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const metadata = await readRepoMetadata(repoId);
   if (!metadata) {
-    return NextResponse.json(
-      { error: "Repository metadata not found" },
-      { status: 404 },
-    );
+    const local = await createLocalConversation(repoId, requestedTitle);
+    return NextResponse.json({
+      ...local,
+      isLocalFallback: true,
+    });
   }
 
   const conversationId = randomUUID();
