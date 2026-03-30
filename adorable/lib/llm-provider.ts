@@ -47,7 +47,7 @@ export const streamLlmResponse = async ({
 
   const result = streamText({
     system,
-    model: provider(CLOUDFLARE_MODEL),
+    model: provider.chat(CLOUDFLARE_MODEL),
     messages: modelMessages,
     tools,
     stopWhen: stepCountIs(100),
