@@ -240,6 +240,8 @@ export async function POST(req: Request) {
       originalMessages: messages,
       run: async ({ onTextDelta, onFileEdit }) => {
         const editedFiles = new Set<string>();
+        const websiteRequest = isWebsiteRequest(messages);
+        const maxLlmRequests = websiteRequest ? 3 : 1;
         const toolsWithEditEvents = createVmTools(vm, {
           sourceRepoId: metadata.sourceRepoId,
           metadataRepoId: repoId,
@@ -249,14 +251,33 @@ export async function POST(req: Request) {
           },
         });
 
-        const llm = await streamLlmResponse({
-          system: SYSTEM_PROMPT,
-          messages,
-          tools: toolsWithEditEvents,
-          onTextDelta,
-        });
+        let finalText = "";
 
-        let finalText = llm.text;
+        for (let attempt = 1; attempt <= maxLlmRequests; attempt += 1) {
+          const attemptSystem =
+            attempt === 1
+              ? SYSTEM_PROMPT
+              : `${SYSTEM_PROMPT}\n\nAttempt ${attempt}/${maxLlmRequests}: You must apply concrete file edits using tools before you answer.`;
+
+          if (attempt > 1) {
+            onTextDelta(
+              `\n\nNo hubo cambios de archivos en el intento anterior. Reintentando (${attempt}/${maxLlmRequests})...\n`,
+            );
+          }
+
+          const llm = await streamLlmResponse({
+            system: attemptSystem,
+            messages,
+            tools: toolsWithEditEvents,
+            onTextDelta,
+          });
+
+          finalText = finalText ? `${finalText}\n\n${llm.text}` : llm.text;
+
+          if (editedFiles.size > 0) {
+            break;
+          }
+        }
 
         if (editedFiles.size === 0 && isWebsiteRequest(messages)) {
           const requestText = latestUserText(messages);
