@@ -15,6 +15,10 @@ export async function GET(
 ) {
   const { repoId } = await params;
 
+  if (repoId.startsWith("local-")) {
+    return NextResponse.json({ conversations: [] });
+  }
+
   if (!(await assertRepoAccess(repoId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -43,6 +47,24 @@ export async function POST(
     requestedTitle = nextTitle ? nextTitle : undefined;
   } catch {
     requestedTitle = undefined;
+  }
+
+  if (repoId.startsWith("local-")) {
+    const conversationId = randomUUID();
+    const now = new Date().toISOString();
+
+    return NextResponse.json({
+      conversationId,
+      conversations: [
+        {
+          id: conversationId,
+          title: requestedTitle ?? "Local conversation",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      isLocalFallback: true,
+    });
   }
 
   if (!(await assertRepoAccess(repoId))) {
