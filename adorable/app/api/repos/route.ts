@@ -1,8 +1,8 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { freestyle } from "freestyle-sandboxes";
-import { TEMPLATE_REPO } from "@/lib/vars";
-import { createVmForRepo } from "@/lib/adorable-vm";
+import { TEMPLATE_REPO, WORKDIR } from "@/lib/vars";
+import { createVmForRepo, adorableVmSpec } from "@/lib/adorable-vm";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import {
   ADORABLE_WRAPPER_REPO_PREFIX,
@@ -12,6 +12,36 @@ import {
   readRepoMetadata,
   writeRepoMetadata,
 } from "@/lib/repo-storage";
+
+/**
+ * After the VM is created, patch package.json to remove --turbopack from the
+ * dev script. Turbopack fails in the Freestyle sandbox because it cannot
+ * resolve the Next.js workspace root. We restart the dev server so the change
+ * takes effect immediately.
+ */
+const patchVmPackageJson = async (vmId: string): Promise<void> => {
+  try {
+    const vm = freestyle.vms.ref({ vmId, spec: adorableVmSpec });
+    const pkgPath = "package.json";
+    const raw = await vm.fs.readTextFile(pkgPath);
+    const pkg = JSON.parse(typeof raw === "string" ? raw : String(raw)) as {
+      scripts?: Record<string, string>;
+    };
+
+    const devScript = pkg?.scripts?.dev ?? "";
+    if (!devScript.includes("--turbopack")) return;
+
+    pkg.scripts!.dev = devScript.replace(/\s*--turbopack/g, "").trim();
+    await vm.fs.writeTextFile(pkgPath, JSON.stringify(pkg, null, 2));
+
+    await (vm as unknown as { exec: (opts: { command: string }) => Promise<unknown> }).exec({
+      command: `cd ${WORKDIR} && pkill -f "next dev" || true && sleep 1 && nohup npm run dev > /tmp/next-dev.log 2>&1 &`,
+    });
+    console.log("[v0] VM package.json patched successfully — Turbopack removed");
+  } catch (error) {
+    console.error("[v0] patchVmPackageJson failed (non-fatal):", error);
+  }
+};
 
 const toDisplayRepoName = (name?: string | null) => {
   if (!name) return undefined;
@@ -192,6 +222,9 @@ export async function POST(req: Request) {
     });
 
     const vm = await createVmForRepo(sourceRepoId);
+
+    // Patch the dev script to remove --turbopack before the first boot
+    await patchVmPackageJson(vm.vmId);
 
     await identity.permissions.vms.grant({
       vmId: vm.vmId,
