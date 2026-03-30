@@ -69,27 +69,33 @@ export async function POST(req: Request) {
     !!process.env.CLOUDFLARE_ACCOUNT_ID && !!process.env.CLOUDFLARE_API_TOKEN;
 
   if (!hasCloudflareCredentials) {
-    return Response.json(
-      {
-        error:
-          "Missing Cloudflare Workers AI credentials. Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN on the backend.",
-      },
-      { status: 500 },
+    return createTextResponse(
+      "No hay credenciales de Cloudflare Workers AI configuradas en backend. Configura CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_API_TOKEN para respuestas reales.",
+      messages,
     );
   }
 
   const isLocalConversation = repoId.startsWith("local-");
 
   if (isLocalConversation) {
-    const llm = await streamLlmResponse({
-      system: SYSTEM_PROMPT,
-      messages,
-      tools: {},
-    });
+    try {
+      const llm = await streamLlmResponse({
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: {},
+      });
 
-    const finalMessages = appendAssistantMessage(messages, llm.text);
-    await saveLocalMessages(repoId, conversationId, finalMessages);
-    return createTextResponse(llm.text, messages);
+      const finalMessages = appendAssistantMessage(messages, llm.text);
+      await saveLocalMessages(repoId, conversationId, finalMessages);
+      return createTextResponse(llm.text, messages);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown local LLM error.";
+      return createTextResponse(
+        `No pude generar respuesta en modo local: ${detail}`,
+        messages,
+      );
+    }
   }
 
   const { identity } = await getOrCreateIdentitySession();
@@ -120,22 +126,31 @@ export async function POST(req: Request) {
     metadataRepoId: repoId,
   });
 
-  const llm = await streamLlmResponse({
-    system: SYSTEM_PROMPT,
-    messages,
-    tools,
-  });
+  try {
+    const llm = await streamLlmResponse({
+      system: SYSTEM_PROMPT,
+      messages,
+      tools,
+    });
 
-  const finalMessages = appendAssistantMessage(messages, llm.text);
-  const latestMetadata = await readRepoMetadata(repoId);
-  if (latestMetadata) {
-    await saveConversationMessages(
-      repoId,
-      latestMetadata,
-      conversationId,
-      finalMessages,
+    const finalMessages = appendAssistantMessage(messages, llm.text);
+    const latestMetadata = await readRepoMetadata(repoId);
+    if (latestMetadata) {
+      await saveConversationMessages(
+        repoId,
+        latestMetadata,
+        conversationId,
+        finalMessages,
+      );
+    }
+
+    return createTextResponse(llm.text, messages);
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown backend LLM error.";
+    return createTextResponse(
+      `No pude generar respuesta del asistente: ${detail}`,
+      messages,
     );
   }
-
-  return createTextResponse(llm.text, messages);
 }
