@@ -11,8 +11,16 @@ Create a `.env.local` file in the root directory and add your credentials:
 CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token
 
-# Optional: override the default model
+# Optional: override default/fallback model
 # CLOUDFLARE_WORKERS_AI_MODEL=@cf/meta/llama-4-scout-17b-16e-instruct
+
+# Optional: specialized model routing
+# VISUAL/UI + animations requests
+# CLOUDFLARE_WORKERS_AI_MODEL_VISUAL=@cf/meta/llama-4-scout-17b-16e-instruct
+# FUNCTIONS/backend/logic requests
+# CLOUDFLARE_WORKERS_AI_MODEL_FUNCTIONS=@cf/meta/llama-4-scout-17b-16e-instruct
+# Everything else
+# CLOUDFLARE_WORKERS_AI_MODEL_GENERAL=@cf/meta/llama-4-scout-17b-16e-instruct
 ```
 
 > **Note**: You can copy `.env.example` to `.env.local` and fill in your values.

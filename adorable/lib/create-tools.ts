@@ -8,6 +8,7 @@ import { WORKDIR, VM_PORT } from "./vars";
 type CreateToolsOptions = {
   sourceRepoId?: string;
   metadataRepoId?: string;
+  onFileEdit?: (file: string) => void | Promise<void>;
 };
 
 const normalizeRelativePath = (rawPath: string): string | null => {
@@ -132,6 +133,7 @@ export const createTools = (vm: Vm, options?: CreateToolsOptions) => {
     execute: async ({ file, content }) => {
       const safeFile = file ? normalizeRelativePath(file) : null;
       if (!safeFile) return { ok: false, error: "File path is required." };
+      if (options?.onFileEdit) await options.onFileEdit(safeFile);
       await vm.fs.writeTextFile(safeFile, content);
       return { ok: true };
     },
@@ -212,6 +214,7 @@ export const createTools = (vm: Vm, options?: CreateToolsOptions) => {
     execute: async ({ file, search, replace, all }) => {
       const safeFile = normalizeRelativePath(file);
       if (!safeFile) return { ok: false, error: "Invalid file path." };
+      if (options?.onFileEdit) await options.onFileEdit(safeFile);
 
       const original = await vm.fs.readTextFile(safeFile);
       const content =
@@ -253,6 +256,7 @@ export const createTools = (vm: Vm, options?: CreateToolsOptions) => {
     execute: async ({ file, content }) => {
       const safeFile = normalizeRelativePath(file);
       if (!safeFile) return { ok: false, error: "Invalid file path." };
+      if (options?.onFileEdit) await options.onFileEdit(safeFile);
 
       let existing = "";
       try {

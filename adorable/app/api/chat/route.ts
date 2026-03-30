@@ -26,6 +26,46 @@ const createTextResponse = (text: string, originalMessages: UIMessage[]) => {
   return createUIMessageStreamResponse({ stream });
 };
 
+const createStreamingLlmResponse = ({
+  originalMessages,
+  run,
+}: {
+  originalMessages: UIMessage[];
+  run: (callbacks: {
+    onTextDelta: (delta: string) => void;
+    onFileEdit: (file: string) => void;
+  }) => Promise<string>;
+}) => {
+  const textId = crypto.randomUUID();
+
+  const stream = createUIMessageStream({
+    originalMessages,
+    execute: async ({ writer }) => {
+      writer.write({ type: "text-start", id: textId });
+
+      const onTextDelta = (delta: string) => {
+        writer.write({ type: "text-delta", id: textId, delta });
+      };
+
+      const onFileEdit = (file: string) => {
+        writer.write({
+          type: "text-delta",
+          id: textId,
+          delta: `\n\nediting (${file})`,
+        });
+      };
+
+      try {
+        await run({ onTextDelta, onFileEdit });
+      } finally {
+        writer.write({ type: "text-end", id: textId });
+      }
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
+};
+
 const appendAssistantMessage = (
   messages: UIMessage[],
   text: string,
@@ -79,15 +119,21 @@ export async function POST(req: Request) {
 
   if (isLocalConversation) {
     try {
-      const llm = await streamLlmResponse({
-        system: SYSTEM_PROMPT,
-        messages,
-        tools: {},
-      });
+      return createStreamingLlmResponse({
+        originalMessages: messages,
+        run: async ({ onTextDelta }) => {
+          const llm = await streamLlmResponse({
+            system: SYSTEM_PROMPT,
+            messages,
+            tools: {},
+            onTextDelta,
+          });
 
-      const finalMessages = appendAssistantMessage(messages, llm.text);
-      await saveLocalMessages(repoId, conversationId, finalMessages);
-      return createTextResponse(llm.text, messages);
+          const finalMessages = appendAssistantMessage(messages, llm.text);
+          await saveLocalMessages(repoId, conversationId, finalMessages);
+          return llm.text;
+        },
+      });
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : "Unknown local LLM error.";
@@ -121,30 +167,37 @@ export async function POST(req: Request) {
     spec: adorableVmSpec,
   });
 
-  const tools = createVmTools(vm, {
-    sourceRepoId: metadata.sourceRepoId,
-    metadataRepoId: repoId,
-  });
-
   try {
-    const llm = await streamLlmResponse({
-      system: SYSTEM_PROMPT,
-      messages,
-      tools,
+    return createStreamingLlmResponse({
+      originalMessages: messages,
+      run: async ({ onTextDelta, onFileEdit }) => {
+        const toolsWithEditEvents = createVmTools(vm, {
+          sourceRepoId: metadata.sourceRepoId,
+          metadataRepoId: repoId,
+          onFileEdit,
+        });
+
+        const llm = await streamLlmResponse({
+          system: SYSTEM_PROMPT,
+          messages,
+          tools: toolsWithEditEvents,
+          onTextDelta,
+        });
+
+        const finalMessages = appendAssistantMessage(messages, llm.text);
+        const latestMetadata = await readRepoMetadata(repoId);
+        if (latestMetadata) {
+          await saveConversationMessages(
+            repoId,
+            latestMetadata,
+            conversationId,
+            finalMessages,
+          );
+        }
+
+        return llm.text;
+      },
     });
-
-    const finalMessages = appendAssistantMessage(messages, llm.text);
-    const latestMetadata = await readRepoMetadata(repoId);
-    if (latestMetadata) {
-      await saveConversationMessages(
-        repoId,
-        latestMetadata,
-        conversationId,
-        finalMessages,
-      );
-    }
-
-    return createTextResponse(llm.text, messages);
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : "Unknown backend LLM error.";

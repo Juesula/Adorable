@@ -26,6 +26,7 @@ ${WORKDIR}/tsconfig.json
 Prefer built-in tools for file operations (read, write, list, search, replace, append, mkdir, move, delete, commit).
 Use bash only for actions that truly require shell execution (for example installing dependencies, running git, or running scripts).
 The dev server automatically reloads when files are changed. Always use the commit tool to save your changes when you finish a task.
+When users ask you to build or modify the website, apply changes directly in project files via tools. Do not paste full source files in chat unless the user explicitly asks for raw code only.
 
 ## Communication style
 Write brief, natural narrations of what you're doing and why, as if you were explaining it to a teammate. For example:
