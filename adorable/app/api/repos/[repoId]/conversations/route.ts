@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import { createConversationInRepo, readRepoMetadata } from "@/lib/repo-storage";
+import {
+  createLocalConversation,
+  listLocalConversations,
+} from "@/lib/local-fallback-store";
 
 const assertRepoAccess = async (repoId: string) => {
   const { identity } = await getOrCreateIdentitySession();
@@ -16,7 +20,8 @@ export async function GET(
   const { repoId } = await params;
 
   if (repoId.startsWith("local-")) {
-    return NextResponse.json({ conversations: [] });
+    const conversations = await listLocalConversations(repoId);
+    return NextResponse.json({ conversations, isLocalFallback: true });
   }
 
   if (!(await assertRepoAccess(repoId))) {
@@ -25,10 +30,7 @@ export async function GET(
 
   const metadata = await readRepoMetadata(repoId);
   if (!metadata) {
-    return NextResponse.json(
-      { error: "Repository metadata not found" },
-      { status: 404 },
-    );
+    return NextResponse.json({ conversations: [], isLocalFallback: true });
   }
 
   return NextResponse.json({ conversations: metadata.conversations });
@@ -50,19 +52,9 @@ export async function POST(
   }
 
   if (repoId.startsWith("local-")) {
-    const conversationId = randomUUID();
-    const now = new Date().toISOString();
-
+    const local = await createLocalConversation(repoId, requestedTitle);
     return NextResponse.json({
-      conversationId,
-      conversations: [
-        {
-          id: conversationId,
-          title: requestedTitle ?? "Local conversation",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
+      ...local,
       isLocalFallback: true,
     });
   }
@@ -73,10 +65,11 @@ export async function POST(
 
   const metadata = await readRepoMetadata(repoId);
   if (!metadata) {
-    return NextResponse.json(
-      { error: "Repository metadata not found" },
-      { status: 404 },
-    );
+    const local = await createLocalConversation(repoId, requestedTitle);
+    return NextResponse.json({
+      ...local,
+      isLocalFallback: true,
+    });
   }
 
   const conversationId = randomUUID();

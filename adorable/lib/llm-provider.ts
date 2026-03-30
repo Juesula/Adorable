@@ -1,7 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import {
-  stepCountIs,
-  streamText,
+  generateText,
   type UIMessage,
   type ToolSet,
   convertToModelMessages,
@@ -14,7 +13,7 @@ type StreamLlmResponseParams = {
 };
 
 type StreamLlmResponseResult = {
-  result: ReturnType<typeof streamText>;
+  text: string;
 };
 
 const CLOUDFLARE_MODEL =
@@ -45,13 +44,12 @@ export const streamLlmResponse = async ({
   const provider = createCloudflareProvider();
   const modelMessages = await convertToModelMessages(messages);
 
-  const result = streamText({
+  const result = await generateText({
     system,
     model: provider.chat(CLOUDFLARE_MODEL),
     messages: modelMessages,
     tools,
-    stopWhen: stepCountIs(100),
   });
 
-  return { result };
+  return { text: result.text };
 };

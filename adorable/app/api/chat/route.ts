@@ -1,11 +1,43 @@
-import { type UIMessage } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  type UIMessage,
+} from "ai";
 import { freestyle } from "freestyle-sandboxes";
 import { createTools as createVmTools } from "@/lib/create-tools";
 import { streamLlmResponse } from "@/lib/llm-provider";
 import { adorableVmSpec } from "@/lib/adorable-vm";
 import { getOrCreateIdentitySession } from "@/lib/identity-session";
 import { readRepoMetadata, saveConversationMessages } from "@/lib/repo-storage";
+import { saveLocalMessages } from "@/lib/local-fallback-store";
 import { SYSTEM_PROMPT } from "@/lib/system-prompt";
+
+const createTextResponse = (text: string, originalMessages: UIMessage[]) => {
+  const textId = crypto.randomUUID();
+  const stream = createUIMessageStream({
+    originalMessages,
+    execute: ({ writer }) => {
+      writer.write({ type: "text-start", id: textId });
+      writer.write({ type: "text-delta", id: textId, delta: text });
+      writer.write({ type: "text-end", id: textId });
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
+};
+
+const appendAssistantMessage = (
+  messages: UIMessage[],
+  text: string,
+): UIMessage[] => {
+  const assistantMessage: UIMessage = {
+    id: crypto.randomUUID(),
+    role: "assistant",
+    parts: [{ type: "text", text }],
+  };
+
+  return [...messages, assistantMessage];
+};
 
 export async function POST(req: Request) {
   const payload = (await req.json()) as {
@@ -55,11 +87,9 @@ export async function POST(req: Request) {
       tools: {},
     });
 
-    return llm.result.toUIMessageStreamResponse({
-      sendReasoning: true,
-      originalMessages: messages,
-      generateMessageId: () => crypto.randomUUID(),
-    });
+    const finalMessages = appendAssistantMessage(messages, llm.text);
+    await saveLocalMessages(repoId, conversationId, finalMessages);
+    return createTextResponse(llm.text, messages);
   }
 
   const { identity } = await getOrCreateIdentitySession();
@@ -96,19 +126,16 @@ export async function POST(req: Request) {
     tools,
   });
 
-  return llm.result.toUIMessageStreamResponse({
-    sendReasoning: true,
-    originalMessages: messages,
-    generateMessageId: () => crypto.randomUUID(),
-    onFinish: async ({ messages: finalMessages }) => {
-      const latestMetadata = await readRepoMetadata(repoId);
-      if (!latestMetadata) return;
-      await saveConversationMessages(
-        repoId,
-        latestMetadata,
-        conversationId,
-        finalMessages,
-      );
-    },
-  });
+  const finalMessages = appendAssistantMessage(messages, llm.text);
+  const latestMetadata = await readRepoMetadata(repoId);
+  if (latestMetadata) {
+    await saveConversationMessages(
+      repoId,
+      latestMetadata,
+      conversationId,
+      finalMessages,
+    );
+  }
+
+  return createTextResponse(llm.text, messages);
 }
