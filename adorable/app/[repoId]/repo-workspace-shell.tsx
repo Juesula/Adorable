@@ -534,6 +534,7 @@ function AppPreview({
   const [activeTab, setActiveTab] = useState("dev-server");
   const [counter, setCounter] = useState(1);
   const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [iframeTimedOut, setIframeTimedOut] = useState(false);
   const [loadedTerminals, setLoadedTerminals] = useState<Set<string>>(
     new Set(),
   );
@@ -544,7 +545,19 @@ function AppPreview({
 
   useEffect(() => {
     setIframeLoaded(false);
+    setIframeTimedOut(false);
   }, [metadata.previewUrl]);
+
+  useEffect(() => {
+    if (iframeLoaded) return;
+    const timeout = window.setTimeout(() => {
+      setIframeTimedOut(true);
+      // Avoid a permanent blank state if the iframe load event never fires
+      setIframeLoaded(true);
+    }, 15000);
+
+    return () => window.clearTimeout(timeout);
+  }, [iframeLoaded, metadata.previewUrl]);
 
   const addTerminal = useCallback(() => {
     if (!metadata.additionalTerminalsUrl) return;
@@ -601,12 +614,27 @@ function AppPreview({
           <iframe
             ref={iframeRef}
             src={metadata.previewUrl}
+            title="App preview"
             className={cn(
               "h-full w-full transition-opacity duration-300",
               iframeLoaded ? "opacity-100" : "opacity-0",
             )}
             onLoad={() => setIframeLoaded(true)}
           />
+          {iframeTimedOut && (
+            <div className="absolute bottom-3 right-3 z-20 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
+              Preview is taking longer than expected.
+              {" "}
+              <a
+                href={metadata.previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Open in new tab
+              </a>
+            </div>
+          )}
         </div>
       </div>
 
