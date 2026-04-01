@@ -535,6 +535,7 @@ function AppPreview({
   const [counter, setCounter] = useState(1);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [iframeTimedOut, setIframeTimedOut] = useState(false);
+  const [previewRetryCount, setPreviewRetryCount] = useState(0);
   const [loadedTerminals, setLoadedTerminals] = useState<Set<string>>(
     new Set(),
   );
@@ -546,7 +547,21 @@ function AppPreview({
   useEffect(() => {
     setIframeLoaded(false);
     setIframeTimedOut(false);
+    setPreviewRetryCount(0);
   }, [metadata.previewUrl]);
+
+  const retryPreviewLoad = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    setIframeLoaded(false);
+    setIframeTimedOut(false);
+    setPreviewRetryCount((count) => count + 1);
+
+    const retryUrl = new URL(metadata.previewUrl);
+    retryUrl.searchParams.set("_previewRetry", String(Date.now()));
+    iframe.src = retryUrl.toString();
+  }, [iframeRef, metadata.previewUrl]);
 
   useEffect(() => {
     if (iframeLoaded) return;
@@ -558,6 +573,11 @@ function AppPreview({
 
     return () => window.clearTimeout(timeout);
   }, [iframeLoaded, metadata.previewUrl]);
+
+  useEffect(() => {
+    if (!iframeTimedOut || previewRetryCount > 0) return;
+    retryPreviewLoad();
+  }, [iframeTimedOut, previewRetryCount, retryPreviewLoad]);
 
   const addTerminal = useCallback(() => {
     if (!metadata.additionalTerminalsUrl) return;
@@ -601,7 +621,7 @@ function AppPreview({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="relative flex h-[70%] min-h-0 flex-col">
         <div className="relative min-h-0 flex-1 bg-muted/30">
-          {!iframeLoaded && (
+          {!iframeLoaded && !iframeTimedOut && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
               <div className="flex flex-col items-center gap-3">
                 <Loader2Icon className="size-6 animate-spin text-muted-foreground/40" />
@@ -615,24 +635,29 @@ function AppPreview({
             ref={iframeRef}
             src={metadata.previewUrl}
             title="App preview"
-            className={cn(
-              "h-full w-full transition-opacity duration-300",
-              iframeLoaded ? "opacity-100" : "opacity-0",
-            )}
+            className="h-full w-full"
             onLoad={() => setIframeLoaded(true)}
           />
           {iframeTimedOut && (
             <div className="absolute bottom-3 right-3 z-20 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
-              Preview is taking longer than expected.
-              {" "}
-              <a
-                href={metadata.previewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-foreground underline underline-offset-2"
-              >
-                Open in new tab
-              </a>
+              <p>Preview is taking longer than expected.</p>
+              <div className="mt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={retryPreviewLoad}
+                  className="font-medium text-foreground underline underline-offset-2"
+                >
+                  Retry
+                </button>
+                <a
+                  href={metadata.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-foreground underline underline-offset-2"
+                >
+                  Open in new tab
+                </a>
+              </div>
             </div>
           )}
         </div>
