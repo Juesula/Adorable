@@ -29,9 +29,14 @@ const patchVmPackageJson = async (vmId: string): Promise<void> => {
     };
 
     const devScript = pkg?.scripts?.dev ?? "";
-    if (!devScript.includes("--turbopack")) return;
+    // Already forced to webpack
+    if (devScript.includes("--no-turbopack")) return;
 
-    pkg.scripts!.dev = devScript.replace(/\s*--turbopack/g, "").trim();
+    // Remove --turbopack if present, then add --no-turbopack
+    pkg.scripts!.dev = devScript
+      .replace(/\s*--turbopack\b/g, "")
+      .replace(/^(next dev)/, "$1 --no-turbopack")
+      .trim();
     await vm.fs.writeTextFile(pkgPath, JSON.stringify(pkg, null, 2));
 
     await (vm as unknown as { exec: (opts: { command: string }) => Promise<unknown> }).exec({
