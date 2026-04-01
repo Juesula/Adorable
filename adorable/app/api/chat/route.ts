@@ -176,7 +176,7 @@ export async function POST(req: Request) {
     const tools = createVmTools(vm, {
       sourceRepoId: metadata.sourceRepoId,
       metadataRepoId: repoId,
-      onFileEdit: (file) => editedFiles.add(file),
+      onFileEdit: (file) => { editedFiles.add(file); },
     });
 
     const result = await createLlmStream({ system: SYSTEM_PROMPT, messages, tools });
