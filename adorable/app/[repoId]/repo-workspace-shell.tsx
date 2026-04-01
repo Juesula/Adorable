@@ -226,6 +226,9 @@ export function RepoWorkspaceShell({
   const selectedRepo = repoId
     ? (repos.find((repo) => repo.id === repoId) ?? null)
     : null;
+  const hasEmbeddablePreviewUrl = /^https?:\/\//i.test(
+    selectedRepo?.vm?.previewUrl ?? "",
+  );
   const showWorkspacePanel = Boolean(repoId);
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<"chat" | "preview">("chat");
@@ -369,7 +372,7 @@ export function RepoWorkspaceShell({
                     <span className="text-sm font-medium">Chat</span>
                   </button>
                   <div className="ml-auto">
-                    {selectedRepo.vm?.previewUrl && (
+                    {hasEmbeddablePreviewUrl && selectedRepo.vm?.previewUrl && (
                       <PublishDialog
                         repo={selectedRepo}
                         onSetProductionDomain={onSetProductionDomain}
@@ -390,7 +393,9 @@ export function RepoWorkspaceShell({
                       : "pointer-events-none opacity-0",
                   )}
                 >
-                  {showWorkspacePanel && selectedRepo.vm?.previewUrl && (
+                  {showWorkspacePanel &&
+                    hasEmbeddablePreviewUrl &&
+                    selectedRepo.vm?.previewUrl && (
                     <BrowserControls
                       previewUrl={selectedRepo.vm.previewUrl}
                       iframeRef={iframeRef}
@@ -539,6 +544,7 @@ function AppPreview({
   const [loadedTerminals, setLoadedTerminals] = useState<Set<string>>(
     new Set(),
   );
+  const isHttpPreviewUrl = /^https?:\/\//i.test(metadata.previewUrl);
 
   const markTerminalLoaded = useCallback((id: string) => {
     setLoadedTerminals((prev) => new Set(prev).add(id));
@@ -553,15 +559,24 @@ function AppPreview({
   const retryPreviewLoad = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    if (!isHttpPreviewUrl) return;
 
     setIframeLoaded(false);
     setIframeTimedOut(false);
     setPreviewRetryCount((count) => count + 1);
 
-    const retryUrl = new URL(metadata.previewUrl);
-    retryUrl.searchParams.set("_previewRetry", String(Date.now()));
-    iframe.src = retryUrl.toString();
-  }, [iframeRef, metadata.previewUrl]);
+    try {
+      const retryUrl = new URL(metadata.previewUrl);
+      if (!["http:", "https:"].includes(retryUrl.protocol)) {
+        iframe.src = metadata.previewUrl;
+        return;
+      }
+      retryUrl.searchParams.set("_previewRetry", String(Date.now()));
+      iframe.src = retryUrl.toString();
+    } catch {
+      iframe.src = metadata.previewUrl;
+    }
+  }, [iframeRef, isHttpPreviewUrl, metadata.previewUrl]);
 
   useEffect(() => {
     if (iframeLoaded) return;
@@ -633,11 +648,16 @@ function AppPreview({
           )}
           <iframe
             ref={iframeRef}
-            src={metadata.previewUrl}
+            src={isHttpPreviewUrl ? metadata.previewUrl : "about:blank"}
             title="App preview"
             className="h-full w-full"
             onLoad={() => setIframeLoaded(true)}
           />
+          {!isHttpPreviewUrl && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-background px-6 text-center text-sm text-muted-foreground">
+              Invalid preview URL scheme. Only http/https URLs can be embedded.
+            </div>
+          )}
           {iframeTimedOut && (
             <div className="absolute bottom-3 right-3 z-20 rounded-md border bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
               <p>Preview is taking longer than expected.</p>
